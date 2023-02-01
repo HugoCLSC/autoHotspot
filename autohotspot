@@ -1,0 +1,106 @@
+#!/bin/bash
+
+#This script was created and based on the script made from RaspberryConnect.com
+#must be included in copies or derivatives of this script
+
+#A Script to switch between a wifi network or a non internet routed Hotspot
+#Works on startup or manually without a reboot or with a timer
+
+#This script is targeted to work with NetworkManager with nmcli commands instead of the traditional raspberry pi network managment
+
+
+#Device interface name to use, the Default is the wlan0
+wifidev="wlan0"
+
+KillHotspot()
+{
+	echo "Autohotspot shutting down"
+	nmcli connection down Hotspot
+}
+
+
+
+ChkConnectionFiles()
+{
+#Checks if there are files on the directory
+	if [ -n "$(ls -A /etc/NetworkManager/system-connections/ 2>/dev/null)" ]
+	then
+		echo "contains Files (or is a file)"
+	else
+		echo "empty (or does not exist)"
+	fi
+
+	conReply =$((ls -A /etc/NetworkManager/system-connection | grep -v "Hotspot.nmconnection") 2>&1) >/dev/null 2>&1
+	printf '%s\n' "${conReply}"
+
+}
+
+
+TestSSIDConnection()
+{
+echo "AutoHotspot"
+echo "Initial Testing...."
+
+echo "Testing SSID connection and testing internet connection"
+#Check to see what SSID's and MAC addresses are in range
+ssidChk=('NoSSid')
+sleep 20
+
+nmcli dev wifi rescan
+
+ssidscanreply = $((nmcli -t dev wifi list ) 2>&1 ) > /dev/null 2>&1
+printf "%s" "${ssidscanreply[@]}"
+
+ssidreply=$((nmcli -t -f NAME c show --active) 2>&1 ) >/dev/null 2>&1
+
+echo "SSID in range: " $ssidreply
+
+ip4_gateway=$((nmcli -g ip4.GATEWAY c s "$ssidreply") 2>&1) >/dev/null 2>&1
+echo "The Gateway: " $ip4_gateway
+
+if [ -z  "$ip4_gateway" ] >/dev/null 2>&1  	#Means this ssid connection has a gateway
+then
+	echo "There is no ip4 gateway, therefore no ssid at all"
+	ssidChk="NoSSid"
+	return 0
+elif [ "$ssidreply" == "Hotspot" ] >/dev/null 2>&1
+then
+	echo "The Hotspot is active, the ssid is Hotspot, but ofcourse there is no internet connection"
+	ssidChk="Hotspot"
+	return 0
+else
+	echo "There is a ip4 gateway therefore there must exist a valid ssid with internet connection"
+	ssidChk="$ssidreply"
+	return 0
+fi
+}
+
+TestSSIDConnection
+
+echo "SSID STATE :" $ssidChk
+
+# Create Hotspot if no connection is available
+if [ "$ssidChk" == "NoSSid" ]
+then    #No ssid in range, no internet connection, Connect to the Hotspot
+	echo "Here Hotspot is not running and there is no internet connection"
+	sleep 2
+        if nmcli connection show Hotspot >/dev/null 2>&1
+        then
+        	# A connection with the name Hotspot exists
+                # Maybe try and connect to it
+                echo "Activating Hotspot"
+		nmcli con up Hotspot
+		sleep 2
+        else
+              	#No connection Named Hotspot exists, Creating a Hotspot connection
+		echo "Creating a Hotspot connection"
+                nmcli dev wifi hotspot iframe wlan0 ssid OctoPrintHotspot password "1234567890"
+		sleep 20
+		echo "Activating the connection"
+		nmcli con up Hotspot
+		sleep 2
+	fi
+
+fi
+
+
